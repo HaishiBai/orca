@@ -21,6 +21,7 @@ import org.springframework.stereotype.Component
 
 @Component
 @CompileStatic
+@Deprecated
 class EnableAsgTask extends AbstractAsgTask {
   String asgAction = "enableAsg"
 }

@@ -16,8 +16,6 @@
 
 package com.netflix.spinnaker.orca.batch.adapters
 
-import com.netflix.spectator.api.DefaultRegistry
-import com.netflix.spectator.api.ExtendedRegistry
 import com.netflix.spectator.api.NoopRegistry
 import com.netflix.spinnaker.kork.jedis.EmbeddedRedis
 import com.netflix.spinnaker.orca.DefaultTaskResult
@@ -52,19 +50,19 @@ class TaskTaskletSpec extends Specification {
   }
 
   def cleanup() {
-    embeddedRedis.jedis.flushDB()
+    embeddedRedis.jedis.withCloseable { it.flushDB() }
   }
 
-  Pool<Jedis> jedisPool = new JedisPool("localhost", embeddedRedis.@port)
+  Pool<Jedis> jedisPool = embeddedRedis.pool
 
   def objectMapper = new OrcaObjectMapper()
-  def executionRepository = new JedisExecutionRepository(new ExtendedRegistry(new NoopRegistry()), jedisPool, 1, 50)
+  def executionRepository = new JedisExecutionRepository(new NoopRegistry(), jedisPool, 1, 50)
   def pipeline = Pipeline.builder().withStage("stage", "stage", [foo: "foo"]).build()
   def stage = pipeline.stages.first()
   def task = Mock(Task)
 
   @Subject
-  def tasklet = new TaskTasklet(task, executionRepository, [], new ExtendedRegistry(new NoopRegistry()))
+  def tasklet = new TaskTasklet(task, executionRepository, [], new NoopRegistry())
 
   JobExecution jobExecution
   StepExecution stepExecution
@@ -111,7 +109,7 @@ class TaskTaskletSpec extends Specification {
     then:
     0 * task.execute(_)
     chunkContext.stepContext.stepExecution.terminateOnly == taskStatus.halt
-    chunkContext.stepContext.stepExecution.exitStatus == (taskStatus.halt ? ExitStatus.FAILED : ExitStatus.EXECUTING)
+    chunkContext.stepContext.stepExecution.exitStatus == (taskStatus.halt ? taskStatus.exitStatus : ExitStatus.EXECUTING)
 
     where:
     taskStatus << ExecutionStatus.values().findAll { it.complete }
@@ -226,7 +224,7 @@ class TaskTaskletSpec extends Specification {
 
     then:
     chunkContext.stepContext.jobExecutionContext == outputs.collect {
-      ["global-${it.key}" as String, it.value]
+      [it.key, it.value]
     }.collectEntries()
 
     where:
@@ -252,11 +250,35 @@ class TaskTaskletSpec extends Specification {
     errors = ["E4", "E5"]
   }
 
+  @Unroll
+  def "should override status depending on `failPipeline`"() {
+    given:
+    def stage = new PipelineStage()
+    stage.context = stageContext
+
+    when:
+    def result = TaskTasklet.applyStageStatusOverrides(
+      stage,
+      new DefaultTaskResult(originalStatus, ["stage": 1], ["global": 2])
+    )
+
+    then:
+    result.status == expectedStatus
+    result.stageOutputs == ["stage": 1]
+    result.globalOutputs == ["global": 2]
+
+    where:
+    stageContext          | originalStatus || expectedStatus
+    [:]                   | TERMINAL       || TERMINAL
+    [failPipeline: true]  | TERMINAL       || TERMINAL
+    [failPipeline: false] | TERMINAL       || STOPPED
+  }
+
   private buildTasklet(Class taskType, boolean shouldRetry) {
     def task = Mock(taskType)
     task.execute(_) >> { throw new RuntimeException() }
 
-    def tasklet = new TaskTasklet(task, executionRepository, [], new ExtendedRegistry(new DefaultRegistry()))
+    def tasklet = new TaskTasklet(task, executionRepository, [], new NoopRegistry())
     tasklet.exceptionHandlers << Mock(ExceptionHandler) {
       1 * handles(_) >> {
         true

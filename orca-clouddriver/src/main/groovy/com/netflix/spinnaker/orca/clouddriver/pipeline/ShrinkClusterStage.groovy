@@ -16,17 +16,14 @@
 
 package com.netflix.spinnaker.orca.clouddriver.pipeline
 
-import com.netflix.spinnaker.orca.clouddriver.tasks.MonitorKatoTask
-import com.netflix.spinnaker.orca.clouddriver.tasks.ServerGroupCacheForceRefreshTask
+import com.netflix.spinnaker.orca.clouddriver.tasks.AbstractClusterWideClouddriverTask
+import com.netflix.spinnaker.orca.clouddriver.tasks.AbstractWaitForClusterWideClouddriverTask
 import com.netflix.spinnaker.orca.clouddriver.tasks.ShrinkClusterTask
 import com.netflix.spinnaker.orca.clouddriver.tasks.WaitForClusterShrinkTask
-import com.netflix.spinnaker.orca.pipeline.LinearStage
-import com.netflix.spinnaker.orca.pipeline.model.Stage
-import org.springframework.batch.core.Step
 import org.springframework.stereotype.Component
 
 @Component
-class ShrinkClusterStage extends LinearStage {
+class ShrinkClusterStage extends AbstractClusterWideClouddriverOperationStage {
   public static final String PIPELINE_CONFIG_TYPE = "shrinkCluster"
 
   ShrinkClusterStage() {
@@ -34,11 +31,12 @@ class ShrinkClusterStage extends LinearStage {
   }
 
   @Override
-  List<Step> buildSteps(Stage stage) {
-    [buildStep(stage, "shrinkCluster", ShrinkClusterTask),
-     buildStep(stage, "monitorShrink", MonitorKatoTask),
-     buildStep(stage, "forceCacheRefresh", ServerGroupCacheForceRefreshTask),
-     buildStep(stage, "waitForClusterShrink", WaitForClusterShrinkTask)
-    ]
+  Class<? extends AbstractClusterWideClouddriverTask> getClusterOperationTask() {
+    ShrinkClusterTask
+  }
+
+  @Override
+  Class<? extends AbstractWaitForClusterWideClouddriverTask> getWaitForTask() {
+    WaitForClusterShrinkTask
   }
 }

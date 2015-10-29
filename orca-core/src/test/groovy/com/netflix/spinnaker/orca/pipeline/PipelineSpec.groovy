@@ -16,6 +16,7 @@
 
 package com.netflix.spinnaker.orca.pipeline
 
+import com.netflix.spinnaker.orca.ExecutionStatus
 import com.netflix.spinnaker.orca.pipeline.model.DefaultTask
 import com.netflix.spinnaker.orca.pipeline.model.Pipeline
 import com.netflix.spinnaker.orca.pipeline.model.PipelineStage
@@ -27,18 +28,40 @@ import static com.netflix.spinnaker.orca.ExecutionStatus.*
 @Unroll
 class PipelineSpec extends Specification {
 
-  @Subject pipeline = Pipeline.builder()
-                              .withTrigger(name: "SPINNAKER-build-job", lastBuildLabel: 1)
-                              .withStage("stage1")
-                              .withStage("stage2")
-                              .withStage("stage3")
-                              .build()
+  @Subject
+    pipeline = Pipeline.builder()
+      .withTrigger(name: "SPINNAKER-build-job", lastBuildLabel: 1)
+      .withStage("stage1")
+      .withStage("stage2")
+      .withStage("stage3")
+      .build()
 
   void setup() {
+    pipeline.version = 1
     pipeline.stages.findAll { it.tasks.isEmpty() }.each {
       // ensure each stage has at least one task (otherwise it will get skipped when calculating pipeline status)
       it.tasks << new DefaultTask()
     }
+  }
+
+  def "a v2 pipeline's status is 'executionStatus'"() {
+    when:
+    pipeline.version = 2
+
+    pipeline.executionStatus = RUNNING
+    pipeline.stages[0].status = TERMINAL
+    pipeline.stages[1].status = TERMINAL
+    pipeline.stages[2].status = TERMINAL
+
+    then:
+    pipeline.status == RUNNING
+
+    when:
+    pipeline.version = 1
+
+    then:
+    pipeline.status == TERMINAL
+
   }
 
   def "a pipeline's status is #expectedStatus if one of its stages is #expectedStatus"() {
@@ -101,33 +124,4 @@ class PipelineSpec extends Specification {
     expect:
     pipeline.trigger.name == "SPINNAKER-build-job" && pipeline.trigger.lastBuildLabel == 1
   }
-
-  @Unroll
-  def "should resolve start and end time properly"() {
-    when:
-    pipeline.stages[0].startTime = stage1StartTime
-    pipeline.stages[0].endTime = stage1EndTime
-    pipeline.stages[0].status = stage1Status
-    pipeline.stages[1].startTime = stage2StartTime
-    pipeline.stages[1].endTime = stage2EndTime
-    pipeline.stages[1].status = stage2Status
-    pipeline.stages[2].startTime = stage2StartTime
-    pipeline.stages[2].endTime = stage2EndTime
-    pipeline.stages[2].status = stage2Status
-
-    then:
-    pipeline.startTime == pipelineStart
-
-    and:
-    pipeline.endTime == pipelineEnd
-
-    where:
-    stage1StartTime | stage1EndTime | stage1Status | stage2StartTime | stage2EndTime | stage2Status | pipelineStart | pipelineEnd
-    1L              | 2L            | SUCCEEDED    | 2L              | 3L            | SUCCEEDED    | 1L            | 3L
-    1L              | 2L            | SUCCEEDED    | 2L              | null          | RUNNING      | 1L            | null
-    1L              | null          | RUNNING      | 1L              | 2L            | SUCCEEDED    | 1L            | null
-    null            | null          | NOT_STARTED  | null            | 2L            | NOT_STARTED  | null          | null
-    1L              | 1L            | FAILED       | null            | null          | NOT_STARTED  | 1L            | 1L
-  }
-
 }

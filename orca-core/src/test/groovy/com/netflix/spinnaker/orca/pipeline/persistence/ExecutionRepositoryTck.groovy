@@ -16,16 +16,15 @@
 
 package com.netflix.spinnaker.orca.pipeline.persistence
 
-import com.netflix.spectator.api.ExtendedRegistry
 import com.netflix.spectator.api.NoopRegistry
 import com.netflix.spinnaker.kork.jedis.EmbeddedRedis
 import com.netflix.spinnaker.orca.pipeline.model.Orchestration
 import com.netflix.spinnaker.orca.pipeline.model.Pipeline
 import com.netflix.spinnaker.orca.pipeline.persistence.jedis.JedisExecutionRepository
 import redis.clients.jedis.Jedis
-import redis.clients.jedis.JedisPool
 import redis.clients.util.Pool
 import spock.lang.*
+import static com.netflix.spinnaker.orca.ExecutionStatus.*
 
 @Subject(ExecutionRepository)
 @Unroll
@@ -55,6 +54,9 @@ abstract class ExecutionRepositoryTck<T extends ExecutionRepository> extends Spe
   }
 
   def "if an execution already has an id it is not re-assigned when stored"() {
+    given:
+    repository.store(execution)
+
     when:
     repository.store(execution)
 
@@ -62,8 +64,25 @@ abstract class ExecutionRepositoryTck<T extends ExecutionRepository> extends Spe
     execution.id == old(execution.id)
 
     where:
-    execution << [new Pipeline(id: "a-preassigned-id", buildTime: 0), new Orchestration(id: "a-preassigned-id")]
+    execution << [new Pipeline(buildTime: 0), new Orchestration(id: "a-preassigned-id")]
   }
+
+  def "can update an execution's context"() {
+    given:
+    repository.store(execution)
+
+    when:
+    repository.storeExecutionContext(execution.id, ["value": execution.class.simpleName])
+    def storedExecution = (execution instanceof Pipeline) ? repository.retrievePipeline(execution.id) : repository.retrieveOrchestration(execution.id)
+
+    then:
+    storedExecution.id == execution.id
+    storedExecution.context == ["value": storedExecution.class.simpleName]
+
+    where:
+    execution << [new Pipeline(buildTime: 0), new Orchestration(id: "a-preassigned-id")]
+  }
+
 
   def "a pipeline can be retrieved after being stored"() {
     given:
@@ -99,6 +118,7 @@ abstract class ExecutionRepositoryTck<T extends ExecutionRepository> extends Spe
       .build()
   }
 
+  @Ignore("I don't think this is really necessary with updated Redis schema")
   def "a pipeline has correctly ordered stages after load"() {
     given:
     def pipeline = Pipeline
@@ -175,6 +195,102 @@ abstract class ExecutionRepositoryTck<T extends ExecutionRepository> extends Spe
     and:
     repository.retrievePipelines().toList().toBlocking().first() == []
   }
+
+  def "updateStatus sets startTime to current time if new status is RUNNING"() {
+    given:
+    repository.store(execution)
+
+    expect:
+    with (repository."retrieve$type"(execution.id)) {
+      startTime == null
+      executionStartTime == null
+    }
+
+    when:
+    repository.updateStatus(execution.id, RUNNING)
+
+    then:
+    with(repository."retrieve$type"(execution.id)) {
+      executionStatus == RUNNING
+      executionStartTime != null
+    }
+
+    where:
+    execution << [new Pipeline(buildTime: 0), new Orchestration()]
+    type = execution.getClass().simpleName
+  }
+
+  def "updateStatus sets endTime to current time if new status is #status"() {
+    given:
+    repository.store(execution)
+
+    expect:
+    with (repository."retrieve$type"(execution.id)) {
+      endTime == null
+      executionEndTime == null
+    }
+
+    when:
+    repository.updateStatus(execution.id, status)
+
+    then:
+    with(repository."retrieve$type"(execution.id)) {
+      executionStatus == status
+      executionEndTime != null
+    }
+
+    where:
+    execution                  | status
+    new Pipeline(buildTime: 0) | CANCELED
+    new Orchestration()        | SUCCEEDED
+    new Orchestration()        | FAILED
+    new Orchestration()        | TERMINAL
+
+    type = execution.getClass().simpleName
+  }
+
+  def "cancelling a not-yet-started execution updates the status immediately"() {
+    given:
+    def execution = new Pipeline(buildTime: 0)
+    repository.store(execution)
+
+    expect:
+    with(repository.retrievePipeline(execution.id)) {
+      executionStatus == NOT_STARTED
+    }
+
+    when:
+    repository.cancel(execution.id)
+
+
+    then:
+    with(repository.retrievePipeline(execution.id)) {
+      canceled
+      executionStatus == CANCELED
+    }
+  }
+
+  def "cancelling a running execution does not update the status immediately"() {
+    given:
+    def execution = new Pipeline(buildTime: 0)
+    repository.store(execution)
+    repository.updateStatus(execution.id, RUNNING)
+
+    expect:
+    with(repository.retrievePipeline(execution.id)) {
+      executionStatus == RUNNING
+    }
+
+    when:
+    repository.cancel(execution.id)
+
+
+    then:
+    with(repository.retrievePipeline(execution.id)) {
+      canceled
+      executionStatus == RUNNING
+    }
+  }
 }
 
 class JedisExecutionRepositorySpec extends ExecutionRepositoryTck<JedisExecutionRepository> {
@@ -186,15 +302,15 @@ class JedisExecutionRepositorySpec extends ExecutionRepositoryTck<JedisExecution
   }
 
   def cleanup() {
-    embeddedRedis.jedis.flushDB()
+    embeddedRedis.jedis.withCloseable { it.flushDB() }
   }
 
-  Pool<Jedis> jedisPool = new JedisPool("localhost", embeddedRedis.@port)
+  Pool<Jedis> jedisPool = embeddedRedis.pool
   @AutoCleanup def jedis = jedisPool.resource
 
   @Override
   JedisExecutionRepository createExecutionRepository() {
-    new JedisExecutionRepository(new ExtendedRegistry(new NoopRegistry()), jedisPool, 1, 50)
+    new JedisExecutionRepository(new NoopRegistry(), jedisPool, 1, 50)
   }
 
   def "cleans up indexes of non-existent executions"() {
@@ -227,7 +343,7 @@ class JedisExecutionRepositorySpec extends ExecutionRepositoryTck<JedisExecution
 
     then:
     jedis.zrange(JedisExecutionRepository.executionsByPipelineKey(pipeline.pipelineConfigId), 0, 1) == [
-        pipeline.id
+      pipeline.id
     ] as Set<String>
 
     when:

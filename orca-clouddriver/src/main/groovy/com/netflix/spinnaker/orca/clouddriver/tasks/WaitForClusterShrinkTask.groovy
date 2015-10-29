@@ -16,66 +16,26 @@
 
 package com.netflix.spinnaker.orca.clouddriver.tasks
 
-import com.netflix.frigga.Names
 import com.netflix.spinnaker.orca.DefaultTaskResult
-import com.netflix.spinnaker.orca.ExecutionStatus
-import com.netflix.spinnaker.orca.RetryableTask
 import com.netflix.spinnaker.orca.TaskResult
-import com.netflix.spinnaker.orca.clouddriver.utils.OortHelper
+import com.netflix.spinnaker.orca.clouddriver.pipeline.support.TargetServerGroup
 import com.netflix.spinnaker.orca.pipeline.model.Stage
-import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.stereotype.Component
 
 @Component
-class WaitForClusterShrinkTask extends AbstractCloudProviderAwareTask implements RetryableTask {
-  long backoffPeriod = 10000
-  long timeout = 1800000
-
-  @Autowired
-  OortHelper oortHelper
+class WaitForClusterShrinkTask extends AbstractWaitForClusterWideClouddriverTask {
+  @Override
+  protected TaskResult missingClusterResult(Stage stage, AbstractClusterWideClouddriverTask.ClusterSelection clusterSelection) {
+    DefaultTaskResult.SUCCEEDED
+  }
 
   @Override
-  TaskResult execute(Stage stage) {
+  protected TaskResult emptyClusterResult(Stage stage, AbstractClusterWideClouddriverTask.ClusterSelection clusterSelection, Map cluster) {
+    DefaultTaskResult.SUCCEEDED
+  }
 
-    List<Map> waitingOnDestroy = stage.context.waitingOnDestroy
-
-    if (waitingOnDestroy == null) {
-      waitingOnDestroy = []
-      Map<String, List<String>> dsg = stage.context.'deploy.server.groups' as Map
-
-      if (dsg) {
-        dsg.each { region, groups ->
-          groups.each { waitingOnDestroy << [region: region, name: it] }
-        }
-      }
-    }
-
-    if (!waitingOnDestroy) {
-      return DefaultTaskResult.SUCCEEDED
-    }
-
-    def config = stage.mapTo(ShrinkClusterTask.ShrinkConfig)
-    def names = Names.parseName(config.cluster)
-
-    Optional<Map> cluster = oortHelper.getCluster(names.app, config.credentials, config.cluster, config.cloudProvider)
-    if (!cluster.isPresent()) {
-      return DefaultTaskResult.SUCCEEDED
-    }
-
-    def serverGroups = cluster.get().serverGroups
-
-    if (!serverGroups) {
-      return DefaultTaskResult.SUCCEEDED
-    }
-
-    def remaining = waitingOnDestroy.findAll { wait ->
-      serverGroups.any { it.region == wait.region && it.name == wait.name }
-    }
-
-    if (remaining) {
-      return new DefaultTaskResult(ExecutionStatus.RUNNING, [waitingOnDestroy: remaining])
-    }
-
-    return DefaultTaskResult.SUCCEEDED
+  @Override
+  boolean isServerGroupOperationInProgress(Optional<TargetServerGroup> currentServerGroup) {
+    currentServerGroup.isPresent()
   }
 }

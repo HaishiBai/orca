@@ -37,6 +37,9 @@ class Application {
   String repoProjectKey
   String repoSlug
   String repoType
+  String cloudProviders
+  String platformHealthOnly
+  String platformHealthOnlyShowOverride
 
   @JsonIgnore
   Set<String> listAccounts() {

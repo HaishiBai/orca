@@ -6,11 +6,15 @@ import com.netflix.spinnaker.orca.RetryableTask
 import com.netflix.spinnaker.orca.Task
 import com.netflix.spinnaker.orca.clouddriver.tasks.MonitorKatoTask
 import com.netflix.spinnaker.orca.clouddriver.tasks.ServerGroupCacheForceRefreshTask
+import com.netflix.spinnaker.orca.clouddriver.tasks.WaitForDownInstanceHealthTask
+import com.netflix.spinnaker.orca.clouddriver.tasks.WaitForUpInstanceHealthTask
 import com.netflix.spinnaker.orca.config.JesqueConfiguration
 import com.netflix.spinnaker.orca.config.OrcaConfiguration
 import com.netflix.spinnaker.orca.config.OrcaPersistenceConfiguration
 import com.netflix.spinnaker.orca.jackson.OrcaObjectMapper
-import com.netflix.spinnaker.orca.kato.tasks.*
+import com.netflix.spinnaker.orca.kato.tasks.DisableInstancesTask
+import com.netflix.spinnaker.orca.kato.tasks.TerminateInstancesTask
+import com.netflix.spinnaker.orca.kato.tasks.WaitForTerminatedInstancesTask
 import com.netflix.spinnaker.orca.kato.tasks.rollingpush.CheckForRemainingTerminationsTask
 import com.netflix.spinnaker.orca.kato.tasks.rollingpush.DetermineTerminationCandidatesTask
 import com.netflix.spinnaker.orca.kato.tasks.rollingpush.DetermineTerminationPhaseInstancesTask
@@ -98,7 +102,8 @@ class RollingPushStageSpec extends Specification {
     config = [
       application: "app",
       name       : "my-pipeline",
-      stages     : [[type: RollingPushStage.PIPELINE_CONFIG_TYPE], [type: "end"]]
+      stages     : [[type: RollingPushStage.PIPELINE_CONFIG_TYPE], [type: "end"]],
+      version: 2
     ]
     configJson = mapper.writeValueAsString(config)
 
