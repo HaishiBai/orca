@@ -1,5 +1,5 @@
 /*
- * Copyright 2014 Netflix, Inc.
+ * Copyright 2015 Google, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,26 +14,19 @@
  * limitations under the License.
  */
 
-package com.netflix.spinnaker.orca.front50.pipeline
+package com.netflix.spinnaker.orca.clouddriver.pipeline.strategies
 
-import com.netflix.spinnaker.orca.front50.tasks.UpsertApplicationTask
-import com.netflix.spinnaker.orca.pipeline.LinearStage
 import com.netflix.spinnaker.orca.pipeline.model.Stage
-import groovy.transform.CompileStatic
-import org.springframework.batch.core.Step
 import org.springframework.stereotype.Component
 
 @Component
-@CompileStatic
-class UpdateApplicationStage extends LinearStage {
-  public static final String PIPELINE_CONFIG_TYPE = "updateApplication"
+class NoStrategy implements Strategy {
 
-  UpdateApplicationStage() {
-    super(PIPELINE_CONFIG_TYPE)
-  }
+  final String name = "none"
 
   @Override
-  public List<Step> buildSteps(Stage stage) {
-    [buildStep(stage, "updateApplication", UpsertApplicationTask)]
+  void composeFlow(Stage stage) {
+    // Do or do not, there is no try.
+    // In this case: do not.
   }
 }

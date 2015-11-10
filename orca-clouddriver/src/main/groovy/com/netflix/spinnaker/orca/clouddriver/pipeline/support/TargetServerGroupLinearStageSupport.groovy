@@ -20,6 +20,7 @@ import com.netflix.spinnaker.orca.batch.StageBuilder
 import com.netflix.spinnaker.orca.clouddriver.pipeline.DetermineTargetServerGroupStage
 import com.netflix.spinnaker.orca.kato.pipeline.Nameable
 import com.netflix.spinnaker.orca.pipeline.LinearStage
+import com.netflix.spinnaker.orca.pipeline.model.Pipeline
 import com.netflix.spinnaker.orca.pipeline.model.Stage
 import groovy.util.logging.Slf4j
 import org.springframework.beans.factory.annotation.Autowired
@@ -40,6 +41,12 @@ abstract class TargetServerGroupLinearStageSupport extends LinearStage implement
   }
 
   void composeTargets(Stage stage) {
+    if(stage.execution instanceof Pipeline && stage.execution.trigger.parameters?.strategy == true){
+      Map trigger = ((Pipeline) stage.execution).trigger
+      stage.context.regions = [trigger.parameters.region]
+      stage.context.cluster = trigger.parameters.cluster
+      stage.context.credentials = trigger.parameters.credentials
+    }
     def params = TargetServerGroup.Params.fromStage(stage)
     if (TargetServerGroup.isDynamicallyBound(stage)) {
       composeDynamicTargets(stage, params)
@@ -94,6 +101,7 @@ abstract class TargetServerGroupLinearStageSupport extends LinearStage implement
         // Clouddriver operations work with multiple values here, but we're choosing to only use 1 per operation.
         description.regions = [location.value]
       }
+      description.targetLocation = [type: location.type.name(), value: location.value]
 
       descriptions << description
     }
@@ -109,13 +117,25 @@ abstract class TargetServerGroupLinearStageSupport extends LinearStage implement
       return
     }
 
-    def locationValues = params.locations.collect { it.value }
+    // Scrub the context of any preset location.
+    stage.context.with {
+      remove("zone")
+      remove("zones")
+      remove("region")
+      remove("regions")
+    }
+
+    def locationType = params.locations[0].pluralType()
+
     Map dtsgContext = new HashMap(stage.context)
-    dtsgContext.regions = new ArrayList(locationValues)
+    dtsgContext[locationType] = params.locations.collect { it.value }
 
     // The original stage.context object is reused here because concrete subclasses must actually perform the requested
     // operation. All future copies of the subclass (operating on different regions/zones) use a copy of the context.
-    stage.context.regions = [locationValues.remove(0)]
+    def initialLocation = params.locations.head()
+    def remainingLocations = params.locations.tail()
+    stage.context[locationType] = [initialLocation.value]
+    stage.context.targetLocation = [type: initialLocation.type.name(), value: initialLocation.value]
 
     preDynamic(stage.context).each {
       injectBefore(stage, it.name, it.stage, it.context)
@@ -124,9 +144,10 @@ abstract class TargetServerGroupLinearStageSupport extends LinearStage implement
       injectAfter(stage, it.name, it.stage, it.context)
     }
 
-    for (location in locationValues) {
+    for (location in remainingLocations) {
       def ctx = new HashMap(stage.context)
-      ctx.regions = [location]
+      ctx[locationType] = [location.value]
+      ctx.targetLocation = [type: location.type.name(), value: location.value]
       preDynamic(ctx).each {
         // Operations done after the first pre-postDynamic injection must all be added with injectAfter.
         injectAfter(stage, it.name, it.stage, it.context)

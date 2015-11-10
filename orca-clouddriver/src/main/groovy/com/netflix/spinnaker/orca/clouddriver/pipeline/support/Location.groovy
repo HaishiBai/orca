@@ -16,6 +16,7 @@
 
 package com.netflix.spinnaker.orca.clouddriver.pipeline.support
 
+import com.fasterxml.jackson.annotation.JsonIgnore
 import groovy.transform.Immutable
 import groovy.transform.ToString
 
@@ -28,4 +29,20 @@ class Location {
   }
   Type type
   String value
+
+  /**
+   * @return The all lowercase, plural form of this location type ("regions" or "zones")
+   */
+  @JsonIgnore
+  String pluralType() {
+    return this.type.toString().toLowerCase() + "s"
+  }
+
+  /**
+   * @return The all lowercase, singular form of this location type ("region" or "zone")
+   */
+  @JsonIgnore
+  String singularType() {
+    return this.type.toString().toLowerCase()
+  }
 }

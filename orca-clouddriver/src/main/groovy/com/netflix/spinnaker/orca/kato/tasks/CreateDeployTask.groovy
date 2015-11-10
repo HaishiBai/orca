@@ -36,7 +36,6 @@ import org.springframework.stereotype.Component
 
 @Slf4j
 @Component
-@CompileStatic
 class CreateDeployTask extends AbstractCloudProviderAwareTask implements Task {
 
   static final List<String> DEFAULT_VPC_SECURITY_GROUPS = ["nf-infrastructure-vpc", "nf-datacenter-vpc"]
@@ -124,6 +123,8 @@ class CreateDeployTask extends AbstractCloudProviderAwareTask implements Task {
         descriptions.addAll(deployOperation.availabilityZones.collect { String region, List<String> azs ->
           [allowLaunchDescription: convertAllowLaunch(deployOperation.credentials, defaultBakeAccount, region, deployOperation.amiName)]
         })
+
+        log.info("Generated `allowLaunchDescriptions` (allowLaunchDescriptions: ${descriptions})")
       }
     }
 

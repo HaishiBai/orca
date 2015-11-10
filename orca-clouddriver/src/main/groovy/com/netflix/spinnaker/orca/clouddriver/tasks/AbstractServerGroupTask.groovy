@@ -16,10 +16,7 @@
 
 package com.netflix.spinnaker.orca.clouddriver.tasks
 
-import com.netflix.spinnaker.orca.DefaultTaskResult
-import com.netflix.spinnaker.orca.ExecutionStatus
-import com.netflix.spinnaker.orca.Task
-import com.netflix.spinnaker.orca.TaskResult
+import com.netflix.spinnaker.orca.*
 import com.netflix.spinnaker.orca.clouddriver.KatoService
 import com.netflix.spinnaker.orca.clouddriver.pipeline.support.Location
 import com.netflix.spinnaker.orca.clouddriver.pipeline.support.TargetServerGroup
@@ -27,12 +24,30 @@ import com.netflix.spinnaker.orca.clouddriver.pipeline.support.TargetServerGroup
 import com.netflix.spinnaker.orca.pipeline.model.Stage
 import org.springframework.beans.factory.annotation.Autowired
 
-abstract class AbstractServerGroupTask extends AbstractCloudProviderAwareTask implements Task {
+abstract class AbstractServerGroupTask extends AbstractCloudProviderAwareTask implements RetryableTask {
+
+  @Override
+  long getBackoffPeriod() {
+    return 2000
+  }
+
+  @Override
+  long getTimeout() {
+    return 60000
+  }
 
   @Autowired
   KatoService kato
 
+  protected boolean isAddTargetOpOutputs() {
+    false
+  }
+
   abstract String getServerGroupAction()
+
+  Map getAdditionalStageOutputs(Stage stage, Map operation) {
+    [:]
+  }
 
   TaskResult execute(Stage stage) {
     String cloudProvider = getCloudProvider(stage)
@@ -40,20 +55,25 @@ abstract class AbstractServerGroupTask extends AbstractCloudProviderAwareTask im
 
     def operation = convert(stage)
     def taskId = kato.requestOperations(cloudProvider, [[(serverGroupAction): operation]])
-      .toBlocking()
-      .first()
-    new DefaultTaskResult(ExecutionStatus.SUCCEEDED, [
-      "notification.type"                                     : serverGroupAction.toLowerCase(),
-      "kato.last.task.id"                                     : taskId,
-      "deploy.account.name"                                   : account,
-      "asgName"                                               : operation.asgName,
-      "serverGroupName"                                       : operation.serverGroupName,
-      ("targetop.asg.${serverGroupAction}.name".toString())   : operation.asgName,
-      ("targetop.asg.${serverGroupAction}.regions".toString()): operation.regions,
-      "deploy.server.groups"                                  : (operation.regions as Collection<String>).collectEntries {
-        [(it): [operation.serverGroupName]]
-      }
-    ])
+        .toBlocking()
+        .first()
+
+    def stageOutputs = [
+        "notification.type"   : serverGroupAction.toLowerCase(),
+        "kato.last.task.id"   : taskId,
+        "deploy.account.name" : account,
+        "asgName"             : operation.serverGroupName,
+        "serverGroupName"     : operation.serverGroupName,
+        "deploy.server.groups": deployServerGroups(operation)
+    ]
+    if (addTargetOpOutputs) {
+      stageOutputs = stageOutputs + [
+          ("targetop.asg.${serverGroupAction}.name".toString())   : operation.serverGroupName,
+          ("targetop.asg.${serverGroupAction}.regions".toString()): deployServerGroups(operation).keySet(),
+      ]
+    }
+
+    new DefaultTaskResult(ExecutionStatus.SUCCEEDED, stageOutputs + getAdditionalStageOutputs(stage, operation))
   }
 
   Map convert(Stage stage) {
@@ -74,4 +94,27 @@ abstract class AbstractServerGroupTask extends AbstractCloudProviderAwareTask im
 
     operation
   }
+
+  /**
+   * @return a Map of location -> server group name
+   */
+  static Map deployServerGroups(Map operation) {
+    def collection
+    if (operation.region) {
+      collection = [operation.region]
+    } else if (operation.regions) {
+      collection = operation.regions
+    } else if (operation.zone) {
+      collection = [operation.zone]
+    } else if (operation.zones) {
+      collection = operation.zones
+    } else {
+      throw new IllegalStateException("Cannot find either regions or zones in operation.")
+    }
+
+    return collection.collectEntries {
+      [(it): [operation.serverGroupName]]
+    }
+  }
+
 }

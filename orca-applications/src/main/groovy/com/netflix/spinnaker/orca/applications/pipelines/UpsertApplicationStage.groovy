@@ -14,9 +14,9 @@
  * limitations under the License.
  */
 
-package com.netflix.spinnaker.orca.front50.pipeline
+package com.netflix.spinnaker.orca.applications.pipelines
 
-import com.netflix.spinnaker.orca.front50.tasks.UpsertApplicationTask
+import com.netflix.spinnaker.orca.applications.tasks.UpsertApplicationTask
 import com.netflix.spinnaker.orca.pipeline.LinearStage
 import com.netflix.spinnaker.orca.pipeline.model.Stage
 import groovy.transform.CompileStatic

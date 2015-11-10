@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package com.netflix.spinnaker.orca.kato.tasks
+package com.netflix.spinnaker.orca.clouddriver.tasks
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.netflix.spinnaker.orca.DefaultTaskResult
@@ -22,15 +22,16 @@ import com.netflix.spinnaker.orca.ExecutionStatus
 import com.netflix.spinnaker.orca.Task
 import com.netflix.spinnaker.orca.TaskResult
 import com.netflix.spinnaker.orca.clouddriver.KatoService
-import com.netflix.spinnaker.orca.clouddriver.tasks.AbstractCloudProviderAwareTask
 import com.netflix.spinnaker.orca.clouddriver.utils.HealthHelper
 import com.netflix.spinnaker.orca.pipeline.model.Stage
+import groovy.util.logging.Slf4j
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Component
 
+@Slf4j
 @Component
-class CloneLastServerGroupTask extends AbstractCloudProviderAwareTask implements Task {
+class CloneServerGroupTask extends AbstractCloudProviderAwareTask implements Task {
 
   @Autowired
   KatoService kato
@@ -68,8 +69,13 @@ class CloneLastServerGroupTask extends AbstractCloudProviderAwareTask implements
   }
 
   private List<Map<String, Object>> getDescriptions(Map operation) {
+    log.info("Generating descriptions (cloudProvider: ${operation.cloudProvider}, getCloudProvider: ${getCloudProvider(operation)}, credentials: ${operation.credentials}, defaultBakeAccount: ${defaultBakeAccount}, availabilityZones: ${operation.availabilityZones})")
+
     List<Map<String, Object>> descriptions = []
-    if (operation.credentials != defaultBakeAccount && operation.availabilityZones) {
+    // NFLX bakes images in their test account. This rigmarole is to allow the prod account access to that image.
+    if (getCloudProvider(operation) == "aws" && // the operation is a clone of stage.context.
+        operation.credentials != defaultBakeAccount &&
+        operation.availabilityZones) {
       def allowLaunchDescriptions = operation.availabilityZones.collect { String region, List<String> azs ->
         [
           allowLaunchDescription: [
@@ -81,6 +87,8 @@ class CloneLastServerGroupTask extends AbstractCloudProviderAwareTask implements
         ]
       }
       descriptions.addAll(allowLaunchDescriptions)
+
+      log.info("Generated `allowLaunchDescriptions` (allowLaunchDescriptions: ${allowLaunchDescriptions})")
     }
     descriptions.add([cloneServerGroup: operation])
     descriptions
