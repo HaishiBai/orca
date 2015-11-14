@@ -15,7 +15,7 @@
  */
 
 apply plugin: 'spring-boot'
-apply plugin: 'spinnaker-debpublish'
+apply plugin: 'nebula.ospackage'
 
 ext {
   springConfigLocation = System.getProperty('spring.config.location', "${System.getProperty('user.home')}/.spinnaker/")
@@ -80,20 +80,41 @@ startScripts {
   }
 }
 
+String toVers(String v) {
+  int idx = v.indexOf('-')
+  if (idx != -1) {
+    return v.substring(0, idx)
+  }
+  return v
+}
+
 ospackage {
   packageName = project.applicationName
-  version = project.version.replaceAll("-SNAPSHOT", "")
+  version = toVers(project.version.toString())
   release '3'
-  into "/opt/${project.applicationName}"
+  // installer scripts
+  postInstall = file('pkg_scripts/postInstall.sh')
+  postUninstall = file('pkg_scripts/postUninstall.sh')
+
   from "${project.buildDir}/install/${project.applicationName}"
+    into "/opt/${project.applicationName}"
+
+  from(file('etc/init/orca.conf')) {
+    into('/etc/init')
+    user = 'root'
+    permissionGroup = 'root'
+    fileType = CONFIG | NOREPLACE
+  }
+
+  from(file('etc/logrotate.d/orca')) {
+    into('/etc/logrotate.d')
+    user = 'root'
+    permissionGroup = 'root'
+    fileType = CONFIG | NOREPLACE
+  }
 }
 
 buildDeb {
   dependsOn installApp
-  requires("redis-server")
 }
-/*
-applicationDefaultJvmArgs = [
-  "-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=5005"
-]
-*/
+
